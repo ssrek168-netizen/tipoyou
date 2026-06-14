@@ -1,0 +1,37 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'org.openjfx.javafxplugin' version '0.0.13'
+}
+
+group = 'com.restaurant'
+version = '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+javafx {
+    version = '21'
+    modules = ['javafx.controls', 'javafx.fxml']
+}
+
+application {
+    mainClass = 'application.Main'
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+dependencies {
+    implementation 'com.microsoft.sqlserver:mssql-jdbc:12.4.2.jre11'
+}
+
+
+tasks.named('run') {
+    jvmArgs = [
+            '--module-path', classpath.asPath,
+            '--add-modules', 'javafx.controls,javafx.fxml'
+    ]
+}
