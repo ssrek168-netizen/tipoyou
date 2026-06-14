@@ -25,7 +25,6 @@ public class DatabaseHelper {
             System.out.println("✅ ПОДКЛЮЧЕНИЕ К БД УСПЕШНО!");
         } catch (Exception e) {
             System.out.println("❌ Ошибка подключения к БД: " + e.getMessage());
-            System.out.println("⚠️ Приложение работает в офлайн-режиме");
             connection = null;
             isConnected = false;
         }
@@ -35,7 +34,7 @@ public class DatabaseHelper {
         return isConnected;
     }
 
-    // Получить все столики из БД
+    // ========== РАБОТА СО СТОЛИКАМИ ==========
     public ResultSet getAllTables() {
         if (!isConnected || connection == null) return null;
         try {
@@ -46,7 +45,6 @@ public class DatabaseHelper {
         }
     }
 
-    // Обновить статус столика
     public void updateTableStatus(int tableNumber, boolean occupied) {
         if (!isConnected || connection == null) return;
         String sql = "UPDATE Tables SET IsOccupied = ? WHERE Number = ?";
@@ -54,13 +52,23 @@ public class DatabaseHelper {
             pstmt.setInt(1, occupied ? 1 : 0);
             pstmt.setInt(2, tableNumber);
             pstmt.executeUpdate();
-            System.out.println("✅ Статус столика " + tableNumber + " обновлён: " + (occupied ? "Занят" : "Свободен"));
+            System.out.println("✅ Статус столика " + tableNumber + " обновлён");
         } catch (SQLException e) {
             System.out.println("❌ Ошибка обновления столика: " + e.getMessage());
         }
     }
 
-    // Получить меню
+    public void resetAllTables() {
+        if (!isConnected || connection == null) return;
+        try {
+            connection.createStatement().executeUpdate("UPDATE Tables SET IsOccupied = 0");
+            System.out.println("✅ Все столики сброшены");
+        } catch (SQLException e) {
+            System.out.println("❌ Ошибка сброса: " + e.getMessage());
+        }
+    }
+
+    // ========== РАБОТА С МЕНЮ ==========
     public ResultSet getAllMenu() {
         if (!isConnected || connection == null) return null;
         try {
@@ -71,10 +79,10 @@ public class DatabaseHelper {
         }
     }
 
-    // Сохранить отзыв
+    // ========== РАБОТА С ОТЗЫВАМИ ==========
     public void saveReview(String customerName, int rating, String comment) {
         if (!isConnected || connection == null) {
-            System.out.println("⚠️ Отзыв не сохранён (БД недоступна)");
+            System.out.println("⚠️ Отзыв не сохранён");
             return;
         }
         String sql = "INSERT INTO Reviews (CustomerName, Rating, Comment, ReviewDate) VALUES (?, ?, ?, ?)";
@@ -84,13 +92,12 @@ public class DatabaseHelper {
             pstmt.setString(3, comment);
             pstmt.setTimestamp(4, Timestamp.valueOf(LocalDateTime.now()));
             pstmt.executeUpdate();
-            System.out.println("✅ Отзыв сохранён в БД");
+            System.out.println("✅ Отзыв сохранён");
         } catch (SQLException e) {
             System.out.println("❌ Ошибка сохранения отзыва: " + e.getMessage());
         }
     }
 
-    // Получить все отзывы
     public ResultSet getAllReviews() {
         if (!isConnected || connection == null) return null;
         try {
@@ -101,10 +108,10 @@ public class DatabaseHelper {
         }
     }
 
-    // Сохранить бронирование
+    // ========== РАБОТА С БРОНИРОВАНИЯМИ ==========
     public void saveBooking(int tableNumber, String customerName, String phone, int guests, String bookingTime, int userId) {
         if (!isConnected || connection == null) {
-            System.out.println("⚠️ Бронирование не сохранено (БД недоступна)");
+            System.out.println("⚠️ Бронирование не сохранено");
             return;
         }
         String sql = "INSERT INTO Bookings (TableNumber, CustomerName, Phone, Guests, BookingTime, BookingDate, UserId) VALUES (?, ?, ?, ?, ?, ?, ?)";
@@ -118,13 +125,22 @@ public class DatabaseHelper {
             pstmt.setInt(7, userId);
             pstmt.executeUpdate();
             updateTableStatus(tableNumber, true);
-            System.out.println("✅ Бронирование сохранено в БД: столик " + tableNumber + ", пользователь ID: " + userId);
+            System.out.println("✅ Бронирование сохранено, столик " + tableNumber);
         } catch (SQLException e) {
             System.out.println("❌ Ошибка сохранения брони: " + e.getMessage());
         }
     }
 
-    // Получить ID пользователя, который забронировал столик
+    public ResultSet getAllBookings() {
+        if (!isConnected || connection == null) return null;
+        try {
+            return connection.createStatement().executeQuery("SELECT * FROM Bookings ORDER BY BookingDate DESC");
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
     public int getBookingUserId(int tableNumber) {
         if (!isConnected || connection == null) return -1;
         String sql = "SELECT TOP 1 UserId FROM Bookings WHERE TableNumber = ? ORDER BY BookingDate DESC";
@@ -132,39 +148,25 @@ public class DatabaseHelper {
             pstmt.setInt(1, tableNumber);
             ResultSet rs = pstmt.executeQuery();
             if (rs.next()) {
-                int userId = rs.getInt("UserId");
-                System.out.println("📋 Столик " + tableNumber + " забронирован пользователем ID: " + userId);
-                return userId;
+                return rs.getInt("UserId");
             }
         } catch (SQLException e) {
-            System.out.println("❌ Ошибка получения брони: " + e.getMessage());
+            System.out.println("❌ Ошибка: " + e.getMessage());
         }
         return -1;
     }
 
-    // Проверка, может ли пользователь освободить столик
     public boolean canUserFreeTable(int tableNumber, int userId, boolean isAdmin) {
-        if (isAdmin) {
-            System.out.println("👑 Администратор может освободить столик " + tableNumber);
-            return true;
-        }
-        if (userId == -1) {
-            System.out.println("⚠️ Неавторизованный пользователь не может освободить столик " + tableNumber);
-            return false;
-        }
+        if (isAdmin) return true;
+        if (userId == -1) return false;
         int bookingUserId = getBookingUserId(tableNumber);
-        boolean canFree = bookingUserId == userId;
-        System.out.println("🔍 Проверка столика " + tableNumber + ": userId=" + userId + ", bookingUserId=" + bookingUserId + ", может освободить=" + canFree);
-        return canFree;
+        return bookingUserId == userId;
     }
 
-    // Сохранить пользователя
+    // ========== РАБОТА С ПОЛЬЗОВАТЕЛЯМИ ==========
     public void saveUser(String username, String password, String fullName, String phone, String address) {
-        if (!isConnected || connection == null) {
-            System.out.println("⚠️ Пользователь не сохранён (БД недоступна)");
-            return;
-        }
-        String sql = "INSERT INTO Users (Username, Password, FullName, Phone, Address) VALUES (?, ?, ?, ?, ?)";
+        if (!isConnected || connection == null) return;
+        String sql = "INSERT INTO Users (Username, Password, FullName, Phone, Address, Role) VALUES (?, ?, ?, ?, ?, 'USER')";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setString(1, username);
             pstmt.setString(2, password);
@@ -174,11 +176,10 @@ public class DatabaseHelper {
             pstmt.executeUpdate();
             System.out.println("✅ Пользователь сохранён: " + username);
         } catch (SQLException e) {
-            System.out.println("❌ Ошибка сохранения пользователя: " + e.getMessage());
+            System.out.println("❌ Ошибка: " + e.getMessage());
         }
     }
 
-    // Проверить пользователя
     public boolean checkUser(String username, String password) {
         if (!isConnected || connection == null) {
             return username.equals("user") && password.equals("123");
@@ -194,7 +195,6 @@ public class DatabaseHelper {
         }
     }
 
-    // Получить пользователя
     public ResultSet getUser(String username) {
         if (!isConnected || connection == null) return null;
         try {
@@ -206,26 +206,18 @@ public class DatabaseHelper {
         }
     }
 
-    // Сбросить все столики в свободное состояние (для отладки)
-    public void resetAllTables() {
-        if (!isConnected || connection == null) return;
+    public ResultSet getAllUsers() {
+        if (!isConnected || connection == null) return null;
         try {
-            connection.createStatement().executeUpdate("UPDATE Tables SET IsOccupied = 0");
-            System.out.println("✅ Все столики сброшены в свободное состояние");
+            return connection.createStatement().executeQuery("SELECT Id, Username, FullName, Phone, Address, Role FROM Users");
         } catch (SQLException e) {
-            System.out.println("❌ Ошибка сброса столиков: " + e.getMessage());
+            e.printStackTrace();
+            return null;
         }
     }
 
-    public void close() {
-        try {
-            if (connection != null) connection.close();
-        } catch (SQLException e) {
-            // Игнорируем
-        }
-    }
     public int getUserIdByUsername(String username) {
-        if (connection == null) return -1;
+        if (!isConnected || connection == null) return -1;
         String sql = "SELECT Id FROM Users WHERE Username = ?";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setString(1, username);
@@ -237,5 +229,81 @@ public class DatabaseHelper {
             e.printStackTrace();
         }
         return -1;
+    }
+
+    // ========== СТАТИСТИКА ==========
+    public ResultSet getOrderStatistics() {
+        if (!isConnected || connection == null) return null;
+        try {
+            return connection.createStatement().executeQuery("SELECT * FROM OrderStatistics ORDER BY OrderDate DESC");
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    public double getTotalRevenue() {
+        if (!isConnected || connection == null) return 0;
+        String sql = "SELECT ISNULL(SUM(TotalAmount), 0) as Total FROM OrderStatistics";
+        try (Statement stmt = connection.createStatement()) {
+            ResultSet rs = stmt.executeQuery(sql);
+            if (rs.next()) {
+                return rs.getDouble("Total");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return 0;
+    }
+
+    public int getTodayOrdersCount() {
+        if (!isConnected || connection == null) return 0;
+        String sql = "SELECT ISNULL(COUNT(*), 0) as Count FROM OrderStatistics WHERE CAST(OrderDate AS DATE) = CAST(GETDATE() AS DATE)";
+        try (Statement stmt = connection.createStatement()) {
+            ResultSet rs = stmt.executeQuery(sql);
+            if (rs.next()) {
+                return rs.getInt("Count");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return 0;
+    }
+
+    public int getTodayBookingsCount() {
+        if (!isConnected || connection == null) return 0;
+        String sql = "SELECT ISNULL(COUNT(*), 0) as Count FROM Bookings WHERE CAST(BookingDate AS DATE) = CAST(GETDATE() AS DATE)";
+        try (Statement stmt = connection.createStatement()) {
+            ResultSet rs = stmt.executeQuery(sql);
+            if (rs.next()) {
+                return rs.getInt("Count");
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return 0;
+    }
+
+    public void saveOrderStatistics(double totalAmount, int itemsCount, String itemsDetails) {
+        if (!isConnected || connection == null) return;
+        String sql = "INSERT INTO OrderStatistics (OrderDate, TotalAmount, ItemsCount, Status, ItemsDetails) VALUES (?, ?, ?, 'NEW', ?)";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setTimestamp(1, Timestamp.valueOf(LocalDateTime.now()));
+            pstmt.setDouble(2, totalAmount);
+            pstmt.setInt(3, itemsCount);
+            pstmt.setString(4, itemsDetails);
+            pstmt.executeUpdate();
+            System.out.println("✅ Статистика заказа сохранена");
+        } catch (SQLException e) {
+            System.out.println("❌ Ошибка: " + e.getMessage());
+        }
+    }
+
+    public void close() {
+        try {
+            if (connection != null) connection.close();
+        } catch (SQLException e) {
+            // Игнорируем
+        }
     }
 }

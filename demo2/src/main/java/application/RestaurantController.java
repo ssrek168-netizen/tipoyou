@@ -25,8 +25,7 @@ public class RestaurantController {
         loadReviews();
     }
 
-
-    private void loadTables() {
+    public void loadTables() {
         tables.clear();
         try (ResultSet rs = db.getAllTables()) {
             if (rs != null) {
@@ -39,6 +38,10 @@ public class RestaurantController {
         } catch (SQLException e) {
             e.printStackTrace();
         }
+    }
+
+    public void loadTablesFromDB() {
+        loadTables();
     }
 
     private void loadMenu() {
@@ -95,24 +98,6 @@ public class RestaurantController {
         loadTables();
         return tables;
     }
-    public void loadTablesFromDB() {
-        tables.clear();
-        try (ResultSet rs = db.getAllTables()) {
-            if (rs != null) {
-                while (rs.next()) {
-                    Table table = new Table(rs.getInt("Number"), rs.getInt("Seats"));
-                    table.setOccupied(rs.getInt("IsOccupied") == 1);
-                    tables.add(table);
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
-    public void resetAllTables() {
-        db.resetAllTables();
-        loadTables();
-    }
 
     public ArrayList<Dish> getMenu() {
         return menu;
@@ -121,5 +106,31 @@ public class RestaurantController {
     public ArrayList<Review> getReviews() {
         loadReviews();
         return reviews;
+    }
+
+    public void resetAllTables() {
+        db.resetAllTables();
+        loadTables();
+    }
+
+    // ========== СТАТИСТИКА ==========
+    public ResultSet getOrderStatistics() {
+        return db.getOrderStatistics();
+    }
+
+    public double getTotalRevenue() {
+        return db.getTotalRevenue();
+    }
+
+    public int getTodayOrdersCount() {
+        return db.getTodayOrdersCount();
+    }
+
+    public int getTodayBookingsCount() {
+        return db.getTodayBookingsCount();
+    }
+
+    public void saveOrderStatistics(double totalAmount, int itemsCount, String itemsDetails) {
+        db.saveOrderStatistics(totalAmount, itemsCount, itemsDetails);
     }
 }

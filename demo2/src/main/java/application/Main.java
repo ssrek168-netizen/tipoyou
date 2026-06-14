@@ -1,5 +1,6 @@
 package application;
 
+import database.DatabaseHelper;
 import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -15,7 +16,8 @@ import models.Review;
 import models.Table;
 import models.User;
 import database.UserManager;
-
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 
 public class Main extends Application {
@@ -25,6 +27,87 @@ public class Main extends Application {
     private TabPane mainTabPane;
     private VBox deliveryPanel;
     private VBox reviewPanel;
+    private Button adminBtn;
+
+    // Проверка может ли пользователь просматривать статистику (только админ)
+    private boolean canViewStatistics(User user) {
+        if (user == null) return false;
+        return user.getRole().equals("ADMIN");
+    }
+    private void refreshTabsAfterLogin(Stage primaryStage) {
+        User currentUser = UserManager.getInstance().getCurrentUser();
+        String role = currentUser != null ? currentUser.getRole() : "";
+
+        // Очищаем существующие вкладки, кроме Столики и Меню
+        while (mainTabPane.getTabs().size() > 2) {
+            mainTabPane.getTabs().remove(2);
+        }
+
+        // Добавляем Доставку
+        Tab deliveryTab = new Tab("🚚 Доставка");
+        deliveryPanel = createDeliveryPanel();
+        deliveryTab.setContent(deliveryPanel);
+        deliveryTab.setClosable(false);
+        mainTabPane.getTabs().add(deliveryTab);
+
+        // Добавляем Отзывы
+        Tab reviewTab = new Tab("⭐ Отзывы");
+        reviewPanel = createReviewPanel();
+        reviewTab.setContent(reviewPanel);
+        reviewTab.setClosable(false);
+        mainTabPane.getTabs().add(reviewTab);
+
+        // Добавляем Статистику только для админа
+        if (role.equals("ADMIN")) {
+            Tab statsTab = new Tab("📊 Статистика");
+            statsTab.setContent(createStatsPanel());
+            statsTab.setClosable(false);
+            mainTabPane.getTabs().add(statsTab);
+        }
+
+        // Добавляем Заказы для повара и админа
+        if (role.equals("COOK") || role.equals("ADMIN")) {
+            Tab ordersTab = new Tab("📦 Заказы");
+            ordersTab.setContent(createOrdersPanel());
+            ordersTab.setClosable(false);
+            mainTabPane.getTabs().add(ordersTab);
+        }
+
+        // Обновляем слушатели
+        deliveryTab.setOnSelectionChanged(e -> {
+            if (deliveryTab.isSelected() && UserManager.getInstance().isLoggedIn()) {
+                updateDeliveryPanelData();
+            }
+        });
+
+        reviewTab.setOnSelectionChanged(e -> {
+            if (reviewTab.isSelected() && UserManager.getInstance().isLoggedIn()) {
+                updateReviewPanelData();
+            }
+        });
+    }
+
+    // Проверка может ли пользователь просматривать заказы (админ и повар)
+    private boolean canViewOrders(User user) {
+        if (user == null) return false;
+        String role = user.getRole();
+        return role.equals("ADMIN") || role.equals("COOK");
+    }
+
+    // Проверка может ли пользователь бронировать столики (все авторизованные)
+    private boolean canBookTable(User user) {
+        return user != null;
+    }
+
+    // Проверка может ли пользователь оформлять доставку (все кроме повара? нет, пусть повар тоже может)
+    private boolean canOrderDelivery(User user) {
+        return user != null;
+    }
+
+    // Проверка может ли пользователь оставлять отзывы (все авторизованные)
+    private boolean canAddReview(User user) {
+        return user != null;
+    }
 
     private VBox createHeader(Stage primaryStage) {
         VBox header = new VBox(5);
@@ -39,6 +122,19 @@ public class Main extends Application {
 
         HBox topBar = new HBox();
         topBar.setAlignment(Pos.TOP_RIGHT);
+        topBar.setSpacing(10);
+
+        // Кнопка админ-панели (видна только администратору)
+        Button adminBtn = new Button("👑 Админ");
+        adminBtn.setStyle("-fx-background-color: #e74c3c; -fx-text-fill: white; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 5px 10px; -fx-background-radius: 20px; -fx-cursor: hand;");
+        adminBtn.setVisible(false);
+
+        adminBtn.setOnAction(e -> {
+            User user = UserManager.getInstance().getCurrentUser();
+            if (user != null && user.isAdmin()) {
+                AdminPanel.showAdminDashboard(primaryStage, user);
+            }
+        });
 
         profileBtn = new Button("👤 Войти / Зарегистрироваться");
         profileBtn.setStyle("-fx-background-color: rgba(255,255,255,0.2); -fx-text-fill: white; -fx-font-size: 12px; -fx-font-weight: bold; -fx-padding: 5px 10px; -fx-background-radius: 20px; -fx-cursor: hand; -fx-border-color: white; -fx-border-radius: 20px; -fx-border-width: 1px;");
@@ -50,20 +146,38 @@ public class Main extends Application {
                 showLoginDialog(primaryStage);
             }
             updateProfileButton();
+            updateAdminButton(adminBtn);
         });
 
-        topBar.getChildren().add(profileBtn);
-
+        topBar.getChildren().addAll(adminBtn, profileBtn);
         header.getChildren().addAll(topBar, title, subtitle);
+
+        // Сохраняем ссылку на adminBtn для обновления (можно добавить поле в класс)
+        this.adminBtn = adminBtn;
+
         return header;
+    }
+    private void updateAdminButton(Button adminBtn) {
+        if (UserManager.getInstance().isLoggedIn()) {
+            User user = UserManager.getInstance().getCurrentUser();
+            adminBtn.setVisible(user != null && user.isAdmin());
+        } else {
+            adminBtn.setVisible(false);
+        }
     }
 
     private void updateProfileButton() {
         if (UserManager.getInstance().isLoggedIn()) {
             User user = UserManager.getInstance().getCurrentUser();
             profileBtn.setText("👤 " + user.getFullName() + " ▼");
+            if (adminBtn != null) {
+                adminBtn.setVisible(user.isAdmin());
+            }
         } else {
             profileBtn.setText("👤 Войти / Зарегистрироваться");
+            if (adminBtn != null) {
+                adminBtn.setVisible(false);
+            }
         }
     }
 
@@ -207,13 +321,16 @@ public class Main extends Application {
                 loginStage.close();
                 updateProfileButton();
 
-                // Обновляем данные в панелях доставки и отзывов
+                // Обновляем данные в панелях
                 updateDeliveryPanelData();
                 updateReviewPanelData();
 
-                // ОБНОВЛЯЕМ СПИСОК СТОЛИКОВ ИЗ БД
+                // Обновляем список столиков
                 controller.loadTablesFromDB();
                 refreshTablesPanel(owner);
+
+                // ПЕРЕСОЗДАЁМ ВКЛАДКИ ПОСЛЕ ВХОДА
+                recreateTabsAfterLogin(owner);
 
                 User user = UserManager.getInstance().getCurrentUser();
                 int userId = UserManager.getInstance().getCurrentUserId();
@@ -227,6 +344,58 @@ public class Main extends Application {
 
         panel.getChildren().addAll(userLabel, usernameField, passLabel, passwordField, errorLabel, loginBtn);
         return panel;
+    }
+    private void recreateTabsAfterLogin(Stage primaryStage) {
+        User currentUser = UserManager.getInstance().getCurrentUser();
+        String role = currentUser != null ? currentUser.getRole() : "";
+
+        // Удаляем вкладки Доставка и Отзывы если они есть (индексы 2 и 3)
+        while (mainTabPane.getTabs().size() > 2) {
+            mainTabPane.getTabs().remove(2);
+        }
+
+        // Добавляем Доставку
+        Tab deliveryTab = new Tab("🚚 Доставка");
+        deliveryPanel = createDeliveryPanel();
+        deliveryTab.setContent(deliveryPanel);
+        deliveryTab.setClosable(false);
+        mainTabPane.getTabs().add(deliveryTab);
+
+        // Добавляем Отзывы
+        Tab reviewTab = new Tab("⭐ Отзывы");
+        reviewPanel = createReviewPanel();
+        reviewTab.setContent(reviewPanel);
+        reviewTab.setClosable(false);
+        mainTabPane.getTabs().add(reviewTab);
+
+        // Вкладка Статистика для менеджера и админа
+        if (role.equals("MANAGER") || role.equals("ADMIN")) {
+            Tab statsTab = new Tab("📊 Статистика");
+            statsTab.setContent(createStatsPanel());
+            statsTab.setClosable(false);
+            mainTabPane.getTabs().add(statsTab);
+        }
+
+        // Вкладка Заказы для повара и админа
+        if (role.equals("COOK") ) {
+            Tab ordersTab = new Tab("📦 Заказы");
+            ordersTab.setContent(createOrdersPanel());
+            ordersTab.setClosable(false);
+            mainTabPane.getTabs().add(ordersTab);
+        }
+
+        // Обновляем слушатели
+        deliveryTab.setOnSelectionChanged(e -> {
+            if (deliveryTab.isSelected() && UserManager.getInstance().isLoggedIn()) {
+                updateDeliveryPanelData();
+            }
+        });
+
+        reviewTab.setOnSelectionChanged(e -> {
+            if (reviewTab.isSelected() && UserManager.getInstance().isLoggedIn()) {
+                updateReviewPanelData();
+            }
+        });
     }
     private VBox createRegisterPanel(Stage loginStage, TabPane parentTabPane) {
         VBox panel = new VBox(15);
@@ -392,6 +561,11 @@ public class Main extends Application {
             displayMessage("👋 Вы вышли из аккаунта");
             updateProfileButton();
 
+            // Скрываем кнопку админ-панели
+            if (adminBtn != null) {
+                adminBtn.setVisible(false);
+            }
+
             // Очищаем поля после выхода
             if (deliveryPanel != null) {
                 for (Node node : deliveryPanel.getChildren()) {
@@ -422,9 +596,14 @@ public class Main extends Application {
                 }
             }
 
-            // ОБНОВЛЯЕМ СПИСОК СТОЛИКОВ ПОСЛЕ ВЫХОДА
+            // Удаляем вкладки Доставка, Отзывы, Статистика, Заказы после выхода
+            while (mainTabPane.getTabs().size() > 2) {
+                mainTabPane.getTabs().remove(2);
+            }
+
+            // Обновляем список столиков после выхода
             controller.loadTablesFromDB();
-            refreshTablesPanel(owner);
+            refreshTablesPanel((Stage) profileStage.getOwner());
         });
 
         mainBox.getChildren().addAll(titleLabel, nameLabel, loginLabel, separator, addressTitle, addressArea, phoneTitle, phoneField, errorLabel, buttonBox);
@@ -433,8 +612,102 @@ public class Main extends Application {
         profileStage.setScene(scene);
         profileStage.showAndWait();
     }
+    private VBox createOrdersPanel() {
+        VBox panel = new VBox(15);
+        panel.setPadding(new Insets(15));
+        panel.setStyle("-fx-background-color: rgba(255,255,255,0.9); -fx-background-radius: 15px;");
+
+        Label title = new Label("📦 История заказов");
+        title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;");
+
+        ListView<String> ordersList = new ListView<>();
+        DatabaseHelper db = new DatabaseHelper();
+
+        refreshOrdersList(ordersList, db);
+
+        Button refreshBtn = new Button("🔄 Обновить");
+        refreshBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 14px; -fx-font-weight: bold; -fx-padding: 10px 20px; -fx-background-radius: 25px; -fx-cursor: hand;");
+        refreshBtn.setOnAction(e -> refreshOrdersList(ordersList, db));
+
+        panel.getChildren().addAll(title, ordersList, refreshBtn);
+        return panel;
+    }
+
+    private void refreshOrdersList(ListView<String> ordersList, DatabaseHelper db) {
+        ordersList.getItems().clear();
+        try (ResultSet rs = db.getOrderStatistics()) {
+            if (rs != null) {
+                while (rs.next()) {
+                    String itemsDetails = rs.getString("ItemsDetails");
+                    if (itemsDetails == null || itemsDetails.isEmpty()) {
+                        itemsDetails = "Не указано";
+                    }
+                    String orderInfo = String.format("🕐 %s | 💰 %.2f руб. | 🍽️ %d блюд\n   📋 %s",
+                            rs.getTimestamp("OrderDate"),
+                            rs.getDouble("TotalAmount"),
+                            rs.getInt("ItemsCount"),
+                            itemsDetails
+                    );
+                    ordersList.getItems().add(orderInfo);
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
+    private VBox createStatsPanel() {
+        VBox panel = new VBox(15);
+        panel.setPadding(new Insets(15));
+        panel.setStyle("-fx-background-color: rgba(255,255,255,0.9); -fx-background-radius: 15px;");
+
+        Label title = new Label("📊 Статистика ресторана");
+        title.setStyle("-fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: #2c3e50;");
+
+        double totalRevenue = controller.getTotalRevenue();
+        int todayOrders = controller.getTodayOrdersCount();
+        int todayBookings = controller.getTodayBookingsCount();
+
+        GridPane statsGrid = new GridPane();
+        statsGrid.setHgap(20);
+        statsGrid.setVgap(15);
+        statsGrid.setAlignment(Pos.CENTER);
+
+        Label revenueLabel = new Label("💰 Общая выручка:");
+        revenueLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
+        Label revenueValue = new Label(String.format("%.2f руб.", totalRevenue));
+        revenueValue.setStyle("-fx-font-size: 16px; -fx-text-fill: #27ae60;");
+
+        Label ordersLabel = new Label("📦 Заказов за сегодня:");
+        ordersLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
+        Label ordersValue = new Label(String.valueOf(todayOrders));
+        ordersValue.setStyle("-fx-font-size: 16px; -fx-text-fill: #3498db;");
+
+        Label bookingsLabel = new Label("📅 Бронирований за сегодня:");
+        bookingsLabel.setStyle("-fx-font-weight: bold; -fx-font-size: 14px;");
+        Label bookingsValue = new Label(String.valueOf(todayBookings));
+        bookingsValue.setStyle("-fx-font-size: 16px; -fx-text-fill: #e67e22;");
+
+        statsGrid.add(revenueLabel, 0, 0);
+        statsGrid.add(revenueValue, 1, 0);
+        statsGrid.add(ordersLabel, 0, 1);
+        statsGrid.add(ordersValue, 1, 1);
+        statsGrid.add(bookingsLabel, 0, 2);
+        statsGrid.add(bookingsValue, 1, 2);
+
+        Button refreshBtn = new Button("🔄 Обновить");
+        refreshBtn.setStyle("-fx-background-color: #3498db; -fx-text-fill: white; -fx-font-size: 14px; -fx-font-weight: bold; -fx-padding: 10px 20px; -fx-background-radius: 25px; -fx-cursor: hand;");
+        refreshBtn.setOnAction(e -> {
+            revenueValue.setText(String.format("%.2f руб.", controller.getTotalRevenue()));
+            ordersValue.setText(String.valueOf(controller.getTodayOrdersCount()));
+            bookingsValue.setText(String.valueOf(controller.getTodayBookingsCount()));
+        });
+
+        panel.getChildren().addAll(title, statsGrid, refreshBtn);
+        return panel;
+    }
 
     @Override
+
     public void start(Stage primaryStage) {
         controller = new RestaurantController();
         primaryStage.setTitle("🍽️ Ресторан Уют");
@@ -442,38 +715,65 @@ public class Main extends Application {
         VBox header = createHeader(primaryStage);
 
         mainTabPane = new TabPane();
+        User currentUser = UserManager.getInstance().getCurrentUser();
+        String role = currentUser != null ? currentUser.getRole() : "";
 
+        // Вкладка Столики для всех
         Tab tablesTab = new Tab("📊 Столики");
         tablesTab.setContent(createTablesPanel(primaryStage));
         tablesTab.setClosable(false);
+        mainTabPane.getTabs().add(tablesTab);
 
+        // Вкладка Меню для всех
         Tab menuTab = new Tab("📋 Меню");
         menuTab.setContent(createMenuPanel());
         menuTab.setClosable(false);
+        mainTabPane.getTabs().add(menuTab);
 
-        Tab deliveryTab = new Tab("🚚 Доставка");
-        deliveryPanel = createDeliveryPanel();
-        deliveryTab.setContent(deliveryPanel);
-        deliveryTab.setClosable(false);
+        // Вкладка Доставка для всех авторизованных
+        if (currentUser != null) {
+            Tab deliveryTab = new Tab("🚚 Доставка");
+            deliveryPanel = createDeliveryPanel();
+            deliveryTab.setContent(deliveryPanel);
+            deliveryTab.setClosable(false);
+            mainTabPane.getTabs().add(deliveryTab);
 
-        Tab reviewTab = new Tab("⭐ Отзывы");
-        reviewPanel = createReviewPanel();
-        reviewTab.setContent(reviewPanel);
-        reviewTab.setClosable(false);
+            deliveryTab.setOnSelectionChanged(e -> {
+                if (deliveryTab.isSelected() && UserManager.getInstance().isLoggedIn()) {
+                    updateDeliveryPanelData();
+                }
+            });
+        }
 
-        deliveryTab.setOnSelectionChanged(e -> {
-            if (deliveryTab.isSelected() && UserManager.getInstance().isLoggedIn()) {
-                updateDeliveryPanelData();
-            }
-        });
+        // Вкладка Отзывы для всех авторизованных
+        if (currentUser != null) {
+            Tab reviewTab = new Tab("⭐ Отзывы");
+            reviewPanel = createReviewPanel();
+            reviewTab.setContent(reviewPanel);
+            reviewTab.setClosable(false);
+            mainTabPane.getTabs().add(reviewTab);
 
-        reviewTab.setOnSelectionChanged(e -> {
-            if (reviewTab.isSelected() && UserManager.getInstance().isLoggedIn()) {
-                updateReviewPanelData();
-            }
-        });
+            reviewTab.setOnSelectionChanged(e -> {
+                if (reviewTab.isSelected() && UserManager.getInstance().isLoggedIn()) {
+                    updateReviewPanelData();
+                }
+            });
+        }
+        // Вкладка Статистика для менеджера и админа
+        if (role.equals("MANAGER") ) {
+            Tab statsTab = new Tab("📊 Статистика");
+            statsTab.setContent(createStatsPanel());
+            statsTab.setClosable(false);
+            mainTabPane.getTabs().add(statsTab);
+        }
 
-        mainTabPane.getTabs().addAll(tablesTab, menuTab, deliveryTab, reviewTab);
+        // Вкладка Заказы для повара и админа
+        if (role.equals("COOK")) {
+            Tab ordersTab = new Tab("📦 Заказы");
+            ordersTab.setContent(createOrdersPanel());
+            ordersTab.setClosable(false);
+            mainTabPane.getTabs().add(ordersTab);
+        }
 
         displayArea = new TextArea();
         displayArea.setEditable(false);
@@ -1076,12 +1376,23 @@ public class Main extends Application {
 
             String comment = commentArea.getText().isEmpty() ? "Без комментариев" : commentArea.getText();
             double total = 0;
+            int itemsCount = 0;
+            StringBuilder itemsDetails = new StringBuilder();
 
             StringBuilder itemsList = new StringBuilder();
             for (OrderItem item : cart) {
                 itemsList.append(String.format("  • %s x%d = %.2f руб.\n", item.name, item.quantity, item.getTotal()));
                 total += item.getTotal();
+                itemsCount += item.quantity;
+                itemsDetails.append(item.name).append(" x").append(item.quantity).append(", ");
             }
+            // Удаляем последнюю запятую и пробел
+            if (itemsDetails.length() > 0) {
+                itemsDetails.setLength(itemsDetails.length() - 2);
+            }
+
+            // Сохраняем статистику заказа с деталями блюд
+            controller.saveOrderStatistics(total, itemsCount, itemsDetails.toString());
 
             displayMessage("✅ ЗАКАЗ ОФОРМЛЕН!\n" +
                     "━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +

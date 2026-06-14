@@ -40,15 +40,17 @@ public class UserManager {
                             rs.getString("Password"),
                             rs.getString("FullName"),
                             rs.getString("Phone"),
-                            rs.getString("Address")
+                            rs.getString("Address"),
+                            rs.getString("Role")  // Добавляем роль
                     );
                     currentUser.setLoggedIn(true);
                     currentUserId = rs.getInt("Id");
-                    System.out.println("✅ Пользователь вошёл: " + username + ", ID: " + currentUserId);
+                    currentUser.setId(currentUserId);
+                    System.out.println("✅ Пользователь вошёл: " + username + ", ID: " + currentUserId + ", Роль: " + currentUser.getRole());
                     return true;
                 }
             } catch (SQLException e) {
-                System.out.println("Ошибка загрузки пользователя: " + e.getMessage());
+                e.printStackTrace();
             }
         }
         return false;
